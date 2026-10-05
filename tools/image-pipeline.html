@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ohana image pipeline</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300&family=Manrope:wght@500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<pre id="log"></pre>
+<script>
+/*
+  Regenerates every optimized asset in /assets from the originals in /Images.
+  Run with:  powershell -ExecutionPolicy Bypass -File tools/build-images.ps1
+  (starts tools/serve.ps1 -AllowSave, opens this page in headless Chrome, then stops).
+*/
+const PHOTOS = [
+  // slug, source file, output widths
+  ['beach-couple',      '354192006_633233345494297_1525735459926106486_n.jpg',  [480, 960, 1440, 2400]],
+  ['sea-swim',          '778816811_18145120339550795_7491395940529864262_n.jpg', [480, 960, 1440, 2400]],
+  ['pool-deck',         '505480662_18101979040550795_8983815153307173724_n.jpg', [480, 960, 1440]],
+  ['poolside-dinner',   '469016815_18083585398550795_1353903396158898537_n.jpg', [480, 960, 1440]],
+  ['ohana-letters',     '506356934_18102165298550795_8275455065257625748_n.jpg', [480, 960, 1440]],
+  ['ohana-letters-sky', '730275242_1407889264695364_7326921640856206610_n.jpg',  [480, 960, 1440]],
+  ['beach-panorama',    '730481172_1407889294695361_6731376918545246846_n.jpg',  [480, 960, 1280]],
+  ['beach-wide',        '730530342_1407888484695442_3492677094123529393_n.jpg',  [480, 960, 1280]],
+  ['beach-towers',      '731147332_1407889284695362_1393358938209433220_n.jpg',  [480, 960, 1440]],
+  ['clear-water',       '730558753_1407888431362114_5995595125080579314_n.jpg',  [540]],
+  ['beach-lounger',     '504879749_18101979004550795_7726224328712367717_n.jpg', [480, 960, 1440]],
+  ['ohana-sign',        '505161703_18101979031550795_4722609801661242372_n.jpg', [480, 960, 1440]],
+  ['blue-frame',        '505440709_18101979013550795_6268988994232679407_n.jpg', [480, 960, 1440]],
+  ['entrance-florals',  '468780818_18083585293550795_3460461715575366683_n.jpg', [480, 960, 1440]],
+  ['boardwalk-ceremony','468855999_18083585281550795_9179507122299358107_n.jpg', [480, 960, 1440]],
+  ['event-tables',      '468738637_18083585335550795_3064889903074668251_n.jpg', [480, 960, 1440]],
+  ['night-stage',       '450161548_18068790976550795_2545054160784609704_n.jpg', [480, 960, 1440]],
+  ['night-cabana',      '450163786_18068791849550795_2275589194669717600_n.jpg', [480, 960, 1440]],
+  ['night-dj',          '450395203_18068791864550795_7066709805451265199_n.jpg', [480, 960, 1440]],
+  ['night-ohana-house', '450395409_18068791837550795_823358273903886487_n.jpg',  [480, 960, 1440]],
+];
+
+const log = (m) => { document.getElementById('log').textContent += m + '\n'; };
+const load = (src) => new Promise((ok, err) => { const i = new Image(); i.onload = () => ok(i); i.onerror = err; i.src = src; });
+const blob = (c, type, q) => new Promise((ok) => c.toBlob(ok, type, q));
+const save = async (path, b) => {
+  const r = await fetch('/__save?path=' + encodeURIComponent(path), { method: 'POST', body: b });
+  if (!r.ok) throw new Error('save failed ' + path);
+};
+const canvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+
+// Downscale in halving steps for clean results.
+function resize(img, w) {
+  let src = img, sw = img.naturalWidth || img.width, sh = img.naturalHeight || img.height;
+  const h = Math.round(sh * w / sw);
+  while (sw / 2 >= w) {
+    const c = canvas(Math.round(sw / 2), Math.round(sh / 2));
+    const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(src, 0, 0, c.width, c.height);
+    src = c; sw = c.width; sh = c.height;
+  }
+  const c = canvas(w, h); const x = c.getContext('2d');
+  x.imageSmoothingQuality = 'high'; x.drawImage(src, 0, 0, w, h);
+  return c;
+}
+
+async function photos() {
+  const meta = {};
+  for (const [slug, file, widths] of PHOTOS) {
+    const img = await load('/Images/' + file);
+    meta[slug] = [img.naturalWidth, img.naturalHeight];
+    for (const w of widths) {
+      await save(`assets/img/${slug}-${w}.webp`, await blob(resize(img, Math.min(w, img.naturalWidth)), 'image/webp', 0.8));
+    }
+    const fw = Math.min(1200, img.naturalWidth);
+    await save(`assets/img/${slug}.jpg`, await blob(resize(img, fw), 'image/jpeg', 0.82));
+    log('photo ' + slug);
+  }
+  log('META ' + JSON.stringify(meta));
+}
+
+// Logo: white artwork on a flat dusty-blue background -> alpha mask.
+async function logo() {
+  const img = await load('/Images/Business%20Logo.jpg');
+  const W = img.width, H = img.height;
+  const c = canvas(W, H), x = c.getContext('2d'); x.drawImage(img, 0, 0);
+  const d = x.getImageData(0, 0, W, H);
+  const bg = [d.data[0], d.data[1], d.data[2]];
+  const bgL = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2];
+  const alpha = new Uint8ClampedArray(W * H);
+  let minX = W, minY = H, maxX = 0, maxY = 0;
+  for (let i = 0; i < W * H; i++) {
+    const L = 0.299 * d.data[i*4] + 0.587 * d.data[i*4+1] + 0.114 * d.data[i*4+2];
+    let a = (L - bgL - 6) / (255 - bgL - 14);
+    a = Math.max(0, Math.min(1, a));
+    alpha[i] = Math.round(a * 255);
+    if (alpha[i] > 30) { const px = i % W, py = (i / W) | 0; minX = Math.min(minX, px); maxX = Math.max(maxX, px); minY = Math.min(minY, py); maxY = Math.max(maxY, py); }
+  }
+  const pad = 6; minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+  const tint = (rgb, x0, y0, x1, y1, skip) => {
+    const w = x1 - x0, h = y1 - y0, o = canvas(w, h), ox = o.getContext('2d'), od = ox.createImageData(w, h);
+    for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) {
+      const si = (y + y0) * W + (xx + x0), di = (y * w + xx) * 4;
+      od.data[di] = rgb[0]; od.data[di+1] = rgb[1]; od.data[di+2] = rgb[2];
+      od.data[di+3] = skip && skip(xx + x0, y + y0) ? 0 : alpha[si];
+    }
+    ox.putImageData(od, 0, 0); return o;
+  };
+  const white = tint([255,255,255], minX, minY, maxX, maxY);
+  const ink = tint([24,46,66], minX, minY, maxX, maxY);
+  await save('assets/brand/logo-white.png', await blob(white, 'image/png'));
+  await save('assets/brand/logo-ink.png', await blob(ink, 'image/png'));
+  log(`logo bbox ${minX},${minY} ${maxX - minX}x${maxY - minY}`);
+
+  // The wave "O" mark only (left part of the artwork) for the favicon.
+  // (the skip region removes the base of the script "h" that touches the O)
+  const mark = tint([255,255,255], 156, 280, 432, 540, (px, py) => px > 404 && py > 420);
+  return { white, mark };
+}
+
+function roundRect(x, X, Y, w, h, r) {
+  x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + h, r); x.arcTo(X + w, Y + h, X, Y + h, r);
+  x.arcTo(X, Y + h, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath();
+}
+
+async function favicons(mark) {
+  const make = (size, radius) => {
+    const c = canvas(size, size), x = c.getContext('2d');
+    x.fillStyle = '#1d5f8f'; roundRect(x, 0, 0, size, size, size * radius); x.fill();
+    const inner = size * 0.72, s = inner / Math.max(mark.width, mark.height);
+    const w = mark.width * s, h = mark.height * s;
+    x.imageSmoothingQuality = 'high';
+    x.drawImage(resize(mark, Math.max(1, Math.round(w))), (size - w) / 2, (size - h) / 2, w, h);
+    return c;
+  };
+  const sizes = { 'favicon-16.png': [16, .2], 'favicon-32.png': [32, .2], 'favicon-48.png': [48, .2], 'apple-touch-icon.png': [180, 0], 'icon-192.png': [192, .22], 'icon-512.png': [512, .22] };
+  const pngs = {};
+  for (const [name, [s, r]] of Object.entries(sizes)) {
+    const b = await blob(make(s, r), 'image/png'); pngs[s] = b; await save('assets/brand/' + name, b);
+  }
+  // favicon.ico with embedded PNGs (16, 32, 48)
+  const entries = [16, 32, 48].map((s) => ({ s, b: pngs[s] }));
+  const bufs = await Promise.all(entries.map((e) => e.b.arrayBuffer()));
+  const head = new DataView(new ArrayBuffer(6 + 16 * entries.length));
+  head.setUint16(2, 1, true); head.setUint16(4, entries.length, true);
+  let off = 6 + 16 * entries.length;
+  entries.forEach((e, i) => {
+    const o = 6 + i * 16;
+    head.setUint8(o, e.s); head.setUint8(o + 1, e.s); head.setUint16(o + 4, 1, true); head.setUint16(o + 6, 32, true);
+    head.setUint32(o + 8, bufs[i].byteLength, true); head.setUint32(o + 12, off, true); off += bufs[i].byteLength;
+  });
+  await save('assets/brand/favicon.ico', new Blob([head.buffer, ...bufs], { type: 'image/x-icon' }));
+  log('favicons');
+}
+
+async function ogImage(logoWhite) {
+  await document.fonts.load('300 80px Fraunces'); await document.fonts.load('italic 300 40px Fraunces'); await document.fonts.load('600 20px Manrope');
+  const img = await load('/Images/778816811_18145120339550795_7491395940529864262_n.jpg');
+  const W = 1200, H = 630, c = canvas(W, H), x = c.getContext('2d');
+  // crop: full width, band containing sky + horizon + swimmers
+  const sw = img.naturalWidth, sh = Math.round(sw * H / W), sy = 820;
+  const band = canvas(sw, sh); band.getContext('2d').drawImage(img, 0, sy, sw, sh, 0, 0, sw, sh);
+  x.drawImage(resize(band, W), 0, 0);
+  // soft legibility gradient from the left
+  const g = x.createLinearGradient(0, 0, W * 0.75, 0);
+  g.addColorStop(0, 'rgba(10,32,52,.62)'); g.addColorStop(.55, 'rgba(10,32,52,.28)'); g.addColorStop(1, 'rgba(10,32,52,0)');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  const v = x.createLinearGradient(0, H * .55, 0, H); v.addColorStop(0, 'rgba(10,32,52,0)'); v.addColorStop(1, 'rgba(10,32,52,.35)');
+  x.fillStyle = v; x.fillRect(0, 0, W, H);
+
+  const lw = 250, lh = logoWhite.height * lw / logoWhite.width;
+  x.drawImage(resize(logoWhite, lw), 84, 92, lw, lh);
+  x.fillStyle = '#fff';
+  x.font = '600 19px Manrope'; x.letterSpacing = '6px';
+  x.fillText('OHANA BEACH HOUSE', 88, 92 + lh + 74);
+  x.letterSpacing = '0px';
+  x.font = '300 58px Fraunces'; x.fillText('Beach Days.', 84, 92 + lh + 148);
+  x.font = 'italic 300 58px Fraunces'; x.fillText('Poolside Comfort.', 84, 92 + lh + 212);
+  x.fillStyle = 'rgba(255,255,255,.55)'; x.fillRect(88, 92 + lh + 252, 48, 1.5);
+  x.font = '600 17px Manrope'; x.letterSpacing = '3px'; x.fillStyle = 'rgba(255,255,255,.9)';
+  x.fillText('NEW ALAMEIN CITY  ·  NORTH COAST, EGYPT', 88, 92 + lh + 290);
+  await save('assets/og/og-image.jpg', await blob(c, 'image/jpeg', 0.88));
+  log('og image');
+}
+
+(async () => {
+  try {
+    const { white, mark } = await logo();
+    await favicons(mark);
+    await ogImage(white);
+    if (!location.search.includes('skipPhotos')) await photos();
+    log('DONE');
+  } catch (e) { log('ERROR ' + e.stack); }
+  // Completion marker read by tools/build-images.ps1
+  await save('assets/.pipeline-log.txt', new Blob([document.getElementById('log').textContent]));
+})();
+</script>
+</body>
+</html>

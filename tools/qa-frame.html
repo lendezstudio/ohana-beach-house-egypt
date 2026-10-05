@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- Review aid: shows a slice of the full page. tools/qa-frame.html?w=390&h=844&y=1200 -->
+<html><head><meta charset="utf-8"><title>QA frame</title>
+<style>html,body{margin:0;overflow:hidden;background:#fff}iframe{position:absolute;left:0;border:0}</style></head>
+<body><iframe id="f"></iframe>
+<script>
+  const p = new URLSearchParams(location.search);
+  const w = +p.get('w') || 1440, h = +p.get('h') || 900, y = +p.get('y') || 0, total = +p.get('total') || 16000;
+  const f = document.getElementById('f');
+  f.style.width = w + 'px'; f.style.height = total + 'px'; f.style.top = -y + 'px';
+  f.src = '../index.html?qa=' + h + (p.get('slide') ? '&slide=' + p.get('slide') : '');
+  // &click=<css selector> clicks an element after load (e.g. the menu toggle)
+  if (p.get('click')) f.onload = () => setTimeout(() => f.contentDocument.querySelector(p.get('click'))?.click(), 300);
+  // &to=<css selector> shows the slice starting at that element (y is then an extra offset)
+  if (p.get('to')) f.addEventListener('load', () => {
+    const el = f.contentDocument.querySelector(p.get('to'));
+    if (el) f.style.top = -(el.getBoundingClientRect().top + y) + 'px';
+  });
+</script></body></html>

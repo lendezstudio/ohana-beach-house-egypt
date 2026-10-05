@@ -1,0 +1,13 @@
+# Internal project documents (not for publishing)
+*.pdf
+
+# Original source photos; the site uses the optimized copies in assets/img
+Images/
+
+# Temporary files from the image pipeline
+assets/.pipeline-log.txt
+
+# OS / editor noise
+Thumbs.db
+desktop.ini
+.DS_Store

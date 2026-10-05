@@ -1,0 +1,13 @@
+{
+  "name": "Ohana Beach House",
+  "short_name": "Ohana",
+  "description": "A beach and pool house on the North Coast of New Alamein City, Egypt.",
+  "start_url": "./",
+  "display": "browser",
+  "background_color": "#f6f1e9",
+  "theme_color": "#1d5f8f",
+  "icons": [
+    { "src": "assets/brand/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/brand/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

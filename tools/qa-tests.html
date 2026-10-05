@@ -1,0 +1,129 @@
+<!doctype html>
+<!-- Review aid: automated checks for the Ohana page. Open http://localhost:5500/tools/qa-tests.html -->
+<html><head><meta charset="utf-8"><title>Ohana QA tests</title>
+<style>body{font:14px/1.5 system-ui;margin:20px}iframe{width:390px;height:844px;border:1px solid #ccc}.pass{color:#1a7f37}.fail{color:#c62828;font-weight:700}</style>
+</head><body>
+<h1>Ohana QA tests</h1>
+<pre id="out">running…</pre>
+<script>
+const out = [];
+const log = (ok, msg) => out.push(`${ok ? 'PASS' : 'FAIL'}  ${msg}`);
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const frameLoad = (attrs) => new Promise((res) => {
+  const f = document.createElement('iframe'); Object.assign(f, attrs);
+  f.onload = () => res(f); document.body.appendChild(f);
+});
+
+async function main() {
+  // ---------- 1. Page in a phone-sized frame ----------
+  const errors = [];
+  const f = await frameLoad({ src: '../index.html' });
+  const w = f.contentWindow, d = f.contentDocument;
+  w.addEventListener('error', (e) => errors.push(e.message));
+  await wait(800);
+
+  // ---------- 2. Every referenced asset returns 200 ----------
+  const urls = new Set();
+  d.querySelectorAll('[src]').forEach((el) => el.getAttribute('src') && urls.add(el.getAttribute('src')));
+  d.querySelectorAll('[srcset]').forEach((el) => el.getAttribute('srcset').split(',').forEach((c) => urls.add(c.trim().split(/\s+/)[0])));
+  d.querySelectorAll('link[href]').forEach((el) => !/^https?:/.test(el.getAttribute('href')) && urls.add(el.getAttribute('href')));
+  d.querySelectorAll('[data-full]').forEach((el) => urls.add(el.dataset.full));
+  d.querySelectorAll('meta[property="og:image"], meta[name="twitter:image"]').forEach((m) => urls.add(m.content));
+  d.querySelectorAll('link[rel="preload"]').forEach((l) => l.getAttribute('imagesrcset')?.split(',').forEach((c) => urls.add(c.trim().split(/\s+/)[0])));
+  urls.delete('');
+  let bad = [];
+  for (const u of urls) {
+    if (/^https?:/.test(u)) continue;
+    const r = await fetch(new URL(u, location.origin + '/'), { method: 'HEAD' });
+    if (!r.ok) bad.push(`${u} (${r.status})`);
+  }
+  log(bad.length === 0, `assets: ${urls.size} local URLs checked` + (bad.length ? ', missing: ' + bad.join(', ') : ''));
+
+  // ---------- 3. In-page anchors resolve ----------
+  const anchors = [...d.querySelectorAll('a[href^="#"]')].map((a) => a.getAttribute('href')).filter((h) => h.length > 1);
+  const missing = [...new Set(anchors)].filter((h) => !d.querySelector(h));
+  log(missing.length === 0, `anchors: ${anchors.length} links → ${new Set(anchors).size} targets` + (missing.length ? ', missing ' + missing : ''));
+
+  // ---------- 4. External links open safely ----------
+  const ext = [...d.querySelectorAll('a[target="_blank"]')];
+  log(ext.every((a) => /noopener/.test(a.rel)), `external links: ${ext.length} use rel=noopener`);
+  const tel = [...d.querySelectorAll('a[href^="tel:"]')];
+  log(tel.length > 0 && tel.every((a) => a.getAttribute('href') === 'tel:+201022411190'), `phone links: ${tel.length} all tel:+201022411190`);
+
+  // ---------- 5. Content guardrails ----------
+  const text = d.body.innerText + ' ' + d.head.innerHTML;
+  const banned = ['Baler', 'Philippines', 'Aurora', 'Hurghada', 'Golden Hand', 'White Beach Marina', 'hotel', 'rooms', 'overnight', 'private beach', 'restaurant', 'EGP', 'capacity of'];
+  const hits = banned.filter((b) => new RegExp('\\b' + b + '\\b', 'i').test(text));
+  log(hits.length === 0, 'no excluded / unsupported terms' + (hits.length ? ', found: ' + hits.join(', ') : ''));
+  log(/pool/i.test(d.querySelector('h1').innerText) && d.querySelectorAll('img[alt*="pool" i]').length >= 2, `pool represented in H1 and ${d.querySelectorAll('img[alt*="pool" i]').length} image alts`);
+  log(d.querySelectorAll('h1').length === 1, 'exactly one h1');
+  const noAlt = [...d.querySelectorAll('img')].filter((i) => !i.hasAttribute('alt'));
+  log(noAlt.length === 0, `all ${d.querySelectorAll('img').length} images have alt attributes`);
+
+  // ---------- 6. Mobile menu ----------
+  const toggle = d.querySelector('[data-menu-toggle]'), menu = d.querySelector('[data-mobile-menu]');
+  log(w.getComputedStyle(toggle).display !== 'none', 'menu toggle visible at 390px');
+  log(d.documentElement.scrollWidth <= w.innerWidth, `no horizontal overflow at 390px (scrollWidth ${d.documentElement.scrollWidth})`);
+  toggle.click(); await wait(100);
+  log(toggle.getAttribute('aria-expanded') === 'true' && menu.classList.contains('is-open') && !menu.hidden, 'menu opens');
+  menu.querySelector('a[href="#gallery"]').click(); await wait(700);
+  log(toggle.getAttribute('aria-expanded') === 'false' && menu.hidden, 'menu closes after choosing a link');
+
+  // ---------- 7. Lightbox ----------
+  const items = d.querySelectorAll('[data-gallery] button'), lb = d.querySelector('[data-lightbox]');
+  items[0].click(); await wait(100);
+  const img = lb.querySelector('[data-lb-img]');
+  log(lb.open && img.getAttribute('src') === items[0].dataset.full, 'lightbox opens on first image');
+  lb.querySelector('[data-lb-next]').click();
+  log(img.getAttribute('src') === items[1].dataset.full, 'lightbox next works');
+  lb.querySelector('[data-lb-prev]').click(); lb.querySelector('[data-lb-prev]').click();
+  log(img.getAttribute('src') === items[items.length - 1].dataset.full, 'lightbox wraps backwards');
+  await new Promise((r) => { img.complete && img.naturalWidth ? r() : (img.onload = r, img.onerror = r); });
+  log(img.naturalWidth > 0, `lightbox image loads (${img.naturalWidth}px)`);
+  lb.querySelector('[data-lb-close]').click(); await wait(50);
+  log(!lb.open, 'lightbox closes');
+
+  // ---------- 8. CTA → inquiry type ----------
+  const form = d.querySelector('[data-inquiry-form]');
+  d.querySelector('#private-events a[data-inquiry]').click();
+  log(form.elements.inquiryType.value === 'Private Event', '"Ask About Private Events" preselects Private Event');
+  d.querySelector('.hero a[data-inquiry]').click();
+  log(form.elements.inquiryType.value === 'Beach Visit', '"Reserve Your Spot" preselects Beach Visit');
+
+  // ---------- 9. Form ----------
+  const status = d.querySelector('[data-form-status]');
+  form.requestSubmit(); await wait(50);
+  log(status.classList.contains('is-error') && form.querySelectorAll('.is-invalid').length === 2, 'empty submit shows validation (name + phone)');
+  form.elements.name.value = 'Test Guest'; form.elements.phone.value = '+20 100 000 0000';
+  form.requestSubmit(); await wait(100);
+  log(status.classList.contains('is-info') && /not/.test(status.textContent) && !/Thank you/.test(status.textContent),
+      'unconnected form says it was NOT sent (no fake success)');
+  log(d.querySelector('[data-directions]').hidden, 'Get Directions hidden until a map URL is configured');
+  log(d.querySelector('[data-whatsapp]').hidden, 'WhatsApp hidden until confirmed');
+  log(!d.querySelector('[data-events-empty]').hidden && d.querySelector('[data-events-list]').hidden, 'events empty state shown with no events configured');
+
+  // ---------- 10. Event cards render from config (sample data, test only) ----------
+  let html = await (await fetch('../index.html')).text();
+  const sample = `<script>window.OHANA_CONFIG={contact:{phoneDisplay:'+20 102 241 1190',phoneHref:'tel:+201022411190',facebook:'#',whatsapp:'https://wa.me/0'},location:{mapUrl:'https://maps.example/test',mapEmbedUrl:''},form:{provider:'none'},
+    events:[{title:'TEST EVENT <b>x</b>',date:'2099-07-01',startTime:'18:00',description:'Sample',lineup:['A','B'],ticketUrl:'https://tickets.example'},{title:'PAST',date:'2000-01-01'}]};<\/script>`;
+  html = html.replace('<script src="assets/js/site-config.js"><\/script>', sample).replace('<head>', '<head><base href="/">');
+  const f2 = await frameLoad({ srcdoc: html }); await wait(600);
+  const d2 = f2.contentDocument;
+  const cards = d2.querySelectorAll('.event-card');
+  log(cards.length === 1, `event cards: ${cards.length} rendered (past event hidden)`);
+  log(cards[0] && !cards[0].querySelector('h3 b') && /TEST EVENT <b>x<\/b>/.test(cards[0].querySelector('h3').textContent), 'event text is escaped');
+  log(cards[0] && /Get Tickets/.test(cards[0].textContent) && /01/.test(cards[0].querySelector('.event-card__date').textContent), 'event card shows date + Get Tickets');
+  log(d2.querySelector('[data-events-empty]').hidden, 'empty state hidden when events exist');
+  log([...d2.querySelectorAll('script[type="application/ld+json"]')].some((s) => /"@type":"Event"/.test(s.textContent)), 'Event JSON-LD injected');
+  log(!d2.querySelector('[data-directions]').hidden && !d2.querySelector('[data-whatsapp]').hidden, 'directions + WhatsApp appear once configured');
+
+  log(errors.length === 0, 'no runtime errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
+}
+
+main().catch((e) => log(false, 'test crashed: ' + e.stack)).finally(() => {
+  const el = document.getElementById('out');
+  el.innerHTML = out.map((l) => `<span class="${l.startsWith('PASS') ? 'pass' : 'fail'}">${l.replace(/</g, '&lt;')}</span>`).join('\n');
+  document.title = out.some((l) => l.startsWith('FAIL')) ? 'QA: FAILURES' : 'QA: ALL PASS';
+});
+</script>
+</body></html>
