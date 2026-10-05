@@ -45,11 +45,20 @@ Until a provider is set, the form tells the visitor their message was **not** se
 **Rebuild images** after adding or replacing photos in `Images/` (needs Chrome or Edge):
 `powershell -ExecutionPolicy Bypass -File tools/build-images.ps1` (the list of photos lives in `tools/image-pipeline.html`).
 
-## Before deploying
+## Deployment (GitHub Pages)
 
-1. Add `<link rel="canonical" href="https://YOUR-DOMAIN/">` and make `og:image`, `twitter:image` and `og:url` **absolute** URLs. Facebook and WhatsApp ignore relative image URLs. See the `DEPLOY` comment in `index.html`.
-2. Decide whether to publish `Images/`, `tools/` and the PDFs. They are not needed by the live page.
-3. Confirm with the business: opening hours, reservation process, entry policy, WhatsApp, map pin, private-event capacity and services. None of these are stated on the site yet.
+Live URL: <https://lendezstudio.github.io/ohana-beach-house-egypt/>
+
+Deployed from the `main` branch, root folder (**Settings → Pages → Deploy from a branch → main / (root)**). Every push to `main` republishes the site within a minute or two.
+
+- `.nojekyll` tells GitHub to serve the files as-is.
+- `404.html` is the branded "page not found" page. Its links are absolute to `/ohana-beach-house-egypt/`.
+- The canonical link, `og:url`, `og:image`, `twitter:image` and the structured data in `index.html` use the full GitHub Pages URL so social previews work.
+- `Images/` (original photos) and the project PDFs are excluded by `.gitignore`.
+
+**Moving to a custom domain later:** add the domain in Settings → Pages, then replace `https://lendezstudio.github.io/ohana-beach-house-egypt/` in the `<head>` of `index.html` and change the `/ohana-beach-house-egypt/` paths in `404.html` to `/`.
+
+**Still to confirm with the business:** opening hours, reservation process, entry policy, WhatsApp, map pin, private-event capacity and services. None of these are stated on the site yet.
 
 ## QA aids
 
